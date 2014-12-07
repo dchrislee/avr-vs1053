@@ -62,15 +62,39 @@ reset:
 	.include "init.asm"
 	rcall uart_init
 	DEBUG_MSG HelloWorld
+	sei
 
 main:
-	sbi PORTD, PD6
-	DELAY_MS 1000
-	cbi PORTD, PD6
-	DELAY_MS 1000
-
+;	sbi PORTD, PD6
+;	DELAY_MS 1000
+;	cbi PORTD, PD6
+;	DELAY_MS 1000
 	rjmp main
 
+_sd_card_insert:
+	cli
+	push mp
+	in mp, SREG
+	push mp
+; turn off INT0 on falling edge
+	in mp, EIMSK
+	andi mp, ~(1 << INT0)
+	out EIMSK, mp
+	sei
+	sbic PIND, PD6
+	cbi  PORTD, PD6
+	sbis PIND, PD6
+	sbi  PORTD, PD6
+	DEBUG_MSG T
+
+	pop mp
+	out SREG, mp
+	pop mp
+;	sei
+reti
+
+T: .db "MSG", 0x0d, 0x0a, 0x00
+
+
 HelloWorld:
-.db "Welcome!"
-.db 0x0D, 0x0A, 0x00, 0x00
+.db "Welcome!",'\n',"Please insert a card into a slot", 0x0D, 0x0A, 0x00

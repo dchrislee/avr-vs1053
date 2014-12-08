@@ -23,6 +23,10 @@
 
 .def mp		 = r16			;	Maintain register
 
+.equ CHANGING = 1
+.equ RISING = 3
+.equ FALLING = 2
+
 .equ UART_BAUDRATE = 9600
 .equ UART_DIVIDER = F_CPU / (16 * UART_BAUDRATE) - 1;
 

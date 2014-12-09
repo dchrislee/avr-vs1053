@@ -8,6 +8,16 @@
 .include "delay.asm"
 
 ; ====
+; SPI init
+; ====
+spi_init:
+	push mp
+;	ldi mp, ()
+_spi_init:
+	pop mp
+	ret
+
+; ====
 ; UART initialization
 ; ====
 uart_init:
@@ -65,14 +75,9 @@ reset:
 	sei
 
 main:
-;	sbi PORTD, PD6
-;	DELAY_MS 1000
-;	cbi PORTD, PD6
-;	DELAY_MS 1000
 	rjmp main
 
 _sd_card_insert:
-;	cli
 	cbi EIMSK, 0	; turn off INT0
 	push mp
 	in mp, SREG
@@ -81,16 +86,11 @@ _sd_card_insert:
 	cbi  PORTD, PD6
 	sbis PIND, PD6
 	sbi  PORTD, PD6
-	DEBUG_MSG T
 	pop mp
 	out SREG, mp
 	pop mp
 	sbi EIMSK, 0	; turn on INT0
-;	sei
 reti
-
-T: .db "MSG", 0x0d, 0x0a, 0x00
-
 
 HelloWorld:
 .db "Please insert a card into a slot", 0x0D, 0x0A, 0x00, 0x00

@@ -11,12 +11,12 @@ _wait_ms:
 	push XL
 	push XH
 _wait_ms_sub:
-	ldi XH, HIGH(DVUS(500))
-	ldi XL, LOW(DVUS(500))
+	ldi XH, high(DVUS(500))
+	ldi XL, low(DVUS(500))
 	rcall  _wait_us ; wait 500 us
 
-	ldi XH, HIGH(DVUS(500))
-	ldi XL, LOW(DVUS(500))
+	ldi XH, high(DVUS(500))
+	ldi XL, low(DVUS(500))
 	rcall  _wait_us ; wait 500 us
 
 	sbiw 	r30, 1

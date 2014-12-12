@@ -53,22 +53,6 @@
 	out PORTD, mp
 
 ;
-; SPI pins init
-;
-	ldi mp, 0xFF
-	out DDRB, mp
-
-;	sbi DDRB, PB0				; Prevent high rise times on PB.0 (/SS) from forcing a change to SPI slave mode !!!
-	sbi PORTB, PB0
-
-	ldi mp, DDRB
-	ori mp, ((1 << PB0) | (1 << PB1) | (1 << PB2))
-	andi mp, ~(1 << PB3)
-	out DDRB, mp
-
-	sbi PORTB, PB3
-
-;
 ; Ext 0 interrupt
 ;
 	ldi mp, EICRA
@@ -77,5 +61,7 @@
 	sts EICRA, mp
 
 	sbi EIMSK, 0				; Enable INT0
+; SD card select pin
+	cbi DDRB, PB4
 
     sei

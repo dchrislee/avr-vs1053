@@ -10,8 +10,7 @@ CC=avrasm2
 HEADERS=
 OBJ=main
 HEX=$(OBJ).hex
-FLAGS=-fI -I. -l $(OBJDIR)/$(OBJ).lst -m $(OBJDIR)/$(OBJ).map -d $(OBJDIR)/$(OBJ).obj -O i -D F_CPU=$(F_CPU)
-# -W+ie -O e
+FLAGS=-fI -I. -l $(OBJDIR)/$(OBJ).lst -m $(OBJDIR)/$(OBJ).map -d $(OBJDIR)/$(OBJ).obj -O w -D F_CPU=$(F_CPU) -W+ie
 
 OBJDIR=build
 LUFA_PATH    = ../Build

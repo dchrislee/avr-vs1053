@@ -2,7 +2,8 @@
 .include "define.inc"
 
 .dseg
-	_ptr:	.byte 2
+	_ptr:		.byte 2
+	card_type:	.byte 1
 
 .include "vectors.inc"
 .include "delay.asm"
@@ -11,53 +12,99 @@
 ; SPI routines
 ; ====================================================================================================================
 spi_init:
-	push mp
+	push spi_mp
 _spi_init:
 	sbi DDRB, PB0				; Prevent high rise times on PB0 (/SS) from forcing a change to SPI slave mode !!!
 	sbi PORTB, PB0
 
 _configure_spi_pins:
-	in mp, DDRB
-	ori mp, ((1 << PB1) | (1 << PB2))	; SCK | MOSI
-	andi mp, ~(1 << PB3)				; MISO
-	out DDRB, mp
+	in spi_mp, DDRB
+	ori spi_mp, ((1 << PB1) | (1 << PB2))	; SCK | MOSI
+	andi spi_mp, ~(1 << PB3)				; MISO
+	out DDRB, spi_mp
 	sbi PORTB, PB3
 _configure_spi_opts:
-	in mp, SPCR
-	andi mp, ~((1 << DORD) | (1 << SPIE) | (1 << CPOL) | (1 << CPHA))	; SPI MSBFIRST, NO SPI Interrupt, Clock Polarity: SCK low when idle, Clock Phase: sample on rising SCK edge
-	ori mp, ((1 << SPE) | (1 << MSTR) | (1 << SPR1) | (1 << SPR0))		; Master, SPI Enable, Clock Frequency: f_OSC / 128			
-	out SPCR, mp
+	in spi_mp, SPCR
+	andi spi_mp, ~((1 << DORD) | (1 << SPIE) | (1 << CPOL) | (1 << CPHA))	; SPI MSBFIRST, NO SPI Interrupt, Clock Polarity: SCK low when idle, Clock Phase: sample on rising SCK edge
+	ori spi_mp, ((1 << SPE) | (1 << MSTR) | (1 << SPR1) | (1 << SPR0))		; Master, SPI Enable, Clock Frequency: f_OSC / 128			
+	out SPCR, spi_mp
 
-    in mp, SPSR
-    andi mp, ~(1 << SPI2X)				; SPI: No double clock freq
-    out SPSR, mp
+    in spi_mp, SPSR
+    andi spi_mp, ~(1 << SPI2X)				; SPI: No double clock freq
+    out SPSR, spi_mp
 
-	pop mp
+	pop spi_mp
 	ret
 
 _spi_wait_ready:
-	in mp, SPSR
-	sbrs mp, SPIF
+	in spi_mp, SPSR
+	sbrs spi_mp, SPIF
 	rjmp _spi_wait_ready
 	ret
 
 spi_recv:
-	ldi mp, 0xFF
-	out SPDR, mp
+	ldi spi_mp, 0xFF
+	out SPDR, spi_mp
 	rjmp _spi_wait_ready
-	in mp, SPDR
+	in spi_mp, SPDR
 	ret
 
 spi_send:
-	out SPDR, mp
+	out SPDR, spi_mp
 	rjmp _spi_wait_ready
-	in mp, SPDR
+	in spi_mp, SPDR
 	ret
 ; ====================================================================================================================
 ; SD card routines
 ; ====================================================================================================================
+select_sd_card:
+	cbi PORTB, PB4
+	ret
 
+unselect_sd_card:
+	sbi PORTB, PB4
+	ret
 
+set_card_type:
+	sts card_type, mp
+	ret
+
+_get_card_type:
+	lds mp, card_type
+	ret
+
+sd_raw_init:
+	rjmp unselect_sd_card
+	ldi mp, 74;	74 cycles to initialize
+_sd_raw_ready_check:
+	rjmp spi_recv
+	dec mp
+	brne _sd_raw_ready_check
+_sd_raw_detect_card_type:
+    ldi mp, 0
+	rjmp set_card_type
+	rjmp select_sd_card
+	ret
+
+sd_raw_send_command:
+	push spi_mp
+	rjmp spi_recv
+	;sd_raw_send_byte(0x40 | command);
+    ;sd_raw_send_byte((arg >> 24) & 0xff);
+    ;sd_raw_send_byte((arg >> 16) & 0xff);
+    ;sd_raw_send_byte((arg >> 8) & 0xff);
+    ;sd_raw_send_byte((arg >> 0) & 0xff);
+    ldi spi_mp, 0x40
+    ;ori spi_mp, mp
+    rjmp spi_send
+	pop spi_mp
+	ret
+
+sd_raw_send_acommand:
+	ret
+
+sd_raw_read:
+	ret
 
 ; ====================================================================================================================
 ; UART routines

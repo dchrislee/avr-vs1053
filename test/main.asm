@@ -57,6 +57,15 @@ spi_send:
 ; ====================================================================================================================
 ; SD card routines
 ; ====================================================================================================================
+.macro SEND_SD_CMD
+	ldi mp, @0
+	ldi mp1, low(@1)
+	ldi mp2, byte2(@1)
+	ldi mp3, byte3(@1)
+	ldi mp4, byte4(@1)
+	rjmp sd_raw_send_command
+.endm
+
 select_sd_card:
 	cbi PORTB, PB4
 	ret
@@ -84,19 +93,59 @@ _sd_raw_detect_card_type:
     ldi mp, 0
 	rjmp set_card_type
 	rjmp select_sd_card
+_go_idle_state:
+	SEND_SD_CMD CMD_GO_IDLE_STATE, 0
 	ret
 
 sd_raw_send_command:
 	push spi_mp
 	rjmp spi_recv
+
 	;sd_raw_send_byte(0x40 | command);
-    ;sd_raw_send_byte((arg >> 24) & 0xff);
-    ;sd_raw_send_byte((arg >> 16) & 0xff);
-    ;sd_raw_send_byte((arg >> 8) & 0xff);
-    ;sd_raw_send_byte((arg >> 0) & 0xff);
     ldi spi_mp, 0x40
-    ;ori spi_mp, mp
+    or spi_mp, mp
     rjmp spi_send
+
+;   sd_raw_send_byte((arg >> 24) & 0xff);
+	mov spi_mp, mp4
+	andi spi_mp, 0xff
+	rjmp spi_send
+;   sd_raw_send_byte((arg >> 16) & 0xff);
+	mov spi_mp, mp3
+	andi spi_mp, 0xff
+	rjmp spi_send
+;   sd_raw_send_byte((arg >> 8) & 0xff);
+	mov spi_mp, mp2
+	andi spi_mp, 0xff
+	rjmp spi_send	
+;   sd_raw_send_byte((arg >> 0) & 0xff);
+	mov spi_mp, mp1
+	andi spi_mp, 0xff
+	rjmp spi_send
+;	sd_raw_send_byte(command == CMD_GO_IDLE_STATE ? 0x95 : 0xFF);
+#if mp == CMD_GO_IDLE_STATE
+	ldi spi_mp, 0x95
+#else
+	ldi spi_mp, 0xFF
+#endif
+	rjmp spi_send
+
+;   for(uint8_t i = 0; i < 10; ++i)
+;   {
+;        response = sd_raw_rec_byte();
+;        if(response != 0xff)
+;            break;
+;    }
+;    return response;
+	ldi mp, 10
+_cmd_response:
+	dec mp
+	breq _cmd_response_failed
+	rjmp spi_recv
+	cpi spi_mp, 0xFF
+	breq _cmd_response
+_cmd_response_failed:
+	mov mp, spi_mp
 	pop spi_mp
 	ret
 
@@ -158,6 +207,7 @@ reset:
 	rcall uart_init
 	DEBUG_MSG HelloWorld
 	rcall spi_init
+	rcall sd_raw_init
 	sei
 
 main:
@@ -168,18 +218,18 @@ main:
 ; ====================================================================================================================
 _sd_card_insert:
 	cbi EIMSK, 0	; turn off INT0
-	push mp
-	in mp, SREG
-	push mp
+	push int_mp
+	in int_mp, SREG
+	push int_mp
 
 	sbic PIND, PD6
 	cbi  PORTD, PD6
 	sbis PIND, PD6
 	sbi  PORTD, PD6
 
-	pop mp
-	out SREG, mp
-	pop mp
+	pop int_mp
+	out SREG, int_mp
+	pop int_mp
 	sbi EIMSK, 0	; turn on INT0
 reti
 

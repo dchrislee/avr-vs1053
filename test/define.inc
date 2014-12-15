@@ -121,6 +121,51 @@
 /* CMD59: arg0[31:1]: stuff bits, arg0[0:0]: crc option, response R1 */
 #define CMD_CRC_ON_OFF 0x3b
 
+#define R1_IDLE_STATE 0
+#define R1_ERASE_RESET 1
+#define R1_ILL_COMMAND 2
+#define R1_COM_CRC_ERR 3
+#define R1_ERASE_SEQ_ERR 4
+#define R1_ADDR_ERR 5
+#define R1_PARAM_ERR 6
+/* R1b: equals R1, additional busy bytes */
+/* R2: size 2 bytes */
+#define R2_CARD_LOCKED 0
+#define R2_WP_ERASE_SKIP 1
+#define R2_ERR 2
+#define R2_CARD_ERR 3
+#define R2_CARD_ECC_FAIL 4
+#define R2_WP_VIOLATION 5
+#define R2_INVAL_ERASE 6
+#define R2_OUT_OF_RANGE 7
+#define R2_CSD_OVERWRITE 7
+#define R2_IDLE_STATE (R1_IDLE_STATE + 8)
+#define R2_ERASE_RESET (R1_ERASE_RESET + 8)
+#define R2_ILL_COMMAND (R1_ILL_COMMAND + 8)
+#define R2_COM_CRC_ERR (R1_COM_CRC_ERR + 8)
+#define R2_ERASE_SEQ_ERR (R1_ERASE_SEQ_ERR + 8)
+#define R2_ADDR_ERR (R1_ADDR_ERR + 8)
+#define R2_PARAM_ERR (R1_PARAM_ERR + 8)
+/* R3: size 5 bytes */
+#define R3_OCR_MASK (0xffffffffUL)
+#define R3_IDLE_STATE (R1_IDLE_STATE + 32)
+#define R3_ERASE_RESET (R1_ERASE_RESET + 32)
+#define R3_ILL_COMMAND (R1_ILL_COMMAND + 32)
+#define R3_COM_CRC_ERR (R1_COM_CRC_ERR + 32)
+#define R3_ERASE_SEQ_ERR (R1_ERASE_SEQ_ERR + 32)
+#define R3_ADDR_ERR (R1_ADDR_ERR + 32)
+#define R3_PARAM_ERR (R1_PARAM_ERR + 32)
+/* Data Response: size 1 byte */
+#define DR_STATUS_MASK 0x0e
+#define DR_STATUS_ACCEPTED 0x05
+#define DR_STATUS_CRC_ERR 0x0a
+#define DR_STATUS_WRITE_ERR 0x0c
+
+/* status bits for card types */
+#define SD_RAW_SPEC_1 0
+#define SD_RAW_SPEC_2 1
+#define SD_RAW_SPEC_SDHC 2
+
 
 #define CYCLES_PER_US					(F_CPU / 1000000)
 #define C4PUS							(CYCLES_PER_US / 8)

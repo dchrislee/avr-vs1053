@@ -4,8 +4,7 @@
 rjmp 	reset
 
 .org	INT0addr
-rjmp	_sd_card_insert
-
+reti
 .org	INT1addr;	= 0x0004	; External Interrupt Rorgest 1
 reti
 .org	INT2addr;	= 0x0006	; External Interrupt Rorgest 2

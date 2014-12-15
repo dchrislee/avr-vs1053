@@ -65,7 +65,7 @@ loop_ram_flush:
 ; PD2 - TXD, input
 ;
 	ldi mp, 0xFF
-	andi mp, ~((1 << PD0) | (1 << PD2))
+	andi mp, ~(1 << PD2)
 	out DDRD, mp
 
 ;
@@ -73,19 +73,18 @@ loop_ram_flush:
 ; PD0 - INT0, high
 ; PD6 - LED,  low
 ;
-	ldi mp, ((1 << PD2) | (1 << PD0))
+	ldi mp, (1 << PD2)
 	out PORTD, mp
 
 ;
 ; Ext 0 interrupt
 ;
-	ldi mp, EICRA
-	andi mp, ~(1 << ISC00) | (1 << ISC01)
-	ori mp, CHANGING
-	sts EICRA, mp
+;	ldi mp, EICRA
+;	andi mp, ~(1 << ISC00) | (1 << ISC01)
+;	ori mp, CHANGING
+;	sts EICRA, mp
 
-	sbi EIMSK, 0				; Enable INT0
-; SD card select pin
-	cbi DDRB, PB4
+;	sbi EIMSK, 0				; Enable INT0
+	sbi DDRB, PB4				; Make SD_CS output
 
     sei

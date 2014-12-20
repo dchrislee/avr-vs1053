@@ -86,5 +86,4 @@ loop_ram_flush:
 
 ;	sbi EIMSK, 0				; Enable INT0
 	sbi DDRB, PB4				; Make SD_CS output
-
-    sei
+	rcall unselect_sd_card

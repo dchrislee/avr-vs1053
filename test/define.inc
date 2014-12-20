@@ -121,9 +121,10 @@
 /* CMD59: arg0[31:1]: stuff bits, arg0[0:0]: crc option, response R1 */
 #define CMD_CRC_ON_OFF 0x3b
 
-#define R1_IDLE_STATE 0
-#define R1_ERASE_RESET 1
-#define R1_ILL_COMMAND 2
+.equ R1_IDLE_STATE = 0
+.equ R1_ERASE_RESET = 1
+.equ R1_ILL_COMMAND = 2
+
 #define R1_COM_CRC_ERR 3
 #define R1_ERASE_SEQ_ERR 4
 #define R1_ADDR_ERR 5
@@ -171,14 +172,6 @@
 #define C4PUS							(CYCLES_PER_US / 8)
 #define DVUS(x)							(C4PUS * x)
 
-.macro UOUT
-.if @0<0x40
-	OUT @0, @1
-.else
-	STS @0, @1
-.endif
-.endm
-
 .macro DELAY_MS
 	push r18
 	push r19
@@ -201,6 +194,8 @@
 .def mp2	 = r20
 .def mp3 	 = r21
 .def mp4 	 = r22
+.def mp5	 = r23
+.def mp6     = r24
 
 .equ CHANGING = 1
 .equ RISING = 3

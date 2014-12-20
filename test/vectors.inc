@@ -2,7 +2,6 @@
 
 .org 	0x0000
 rjmp 	reset
-
 .org	INT0addr
 reti
 .org	INT1addr;	= 0x0004	; External Interrupt Rorgest 1

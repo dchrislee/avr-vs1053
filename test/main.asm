@@ -5,8 +5,50 @@
 	_ptr:		.byte 2
 	card_type:	.byte 1
 
-.include "vectors.inc"
-.include "delay.asm"
+.cseg
+.org 	0x0000
+rjmp 	reset
+.org	INT_VECTORS_SIZE
+
+; ====================================================================================================================
+; RESET
+; ====================================================================================================================
+reset:
+	.include "init.asm"
+	rcall uart_init
+	rcall spi_init
+	rcall sd_raw_init
+	rjmp main
+
+main:
+	rjmp main
+
+;===============================================================
+; Delay utilities
+; Registers used: r18:r19, r30:r31, XL:XH
+;===============================================================
+_wait_us:
+	sbiw   XL, 1
+	brne   _wait_us
+	ret
+
+_wait_ms:
+	push XL
+	push XH
+_wait_ms_sub:
+	ldi XH, high(DVUS(500))
+	ldi XL, low(DVUS(500))
+	rcall  _wait_us ; wait 500 us
+
+	ldi XH, high(DVUS(500))
+	ldi XL, low(DVUS(500))
+	rcall  _wait_us ; wait 500 us
+
+	sbiw 	r30, 1
+	brne   _wait_ms_sub
+	pop XH
+	pop XL
+	ret
 
 ; ====================================================================================================================
 ; SPI routines
@@ -32,12 +74,10 @@ _configure_spi_opts:
     in spi_mp, SPSR
     andi spi_mp, ~(1 << SPI2X)				; SPI: No double clock freq
     out SPSR, spi_mp
-
 	pop spi_mp
 	ret
 
 _spi_wait_ready:
-	rcall uart_send
 	in spi_mp, SPSR
 	sbrs spi_mp, SPIF
 	rcall _spi_wait_ready
@@ -58,17 +98,6 @@ spi_send:
 ; ====================================================================================================================
 ; SD card routines
 ; ====================================================================================================================
-.macro SEND_SD_CMD
-	push mp
-	ldi mp, @0
-	ldi mp1, 0;low(@1)
-	ldi mp2, 0;byte2(@1)
-	ldi mp3, 0;byte3(@1)
-	ldi mp4, 0;byte4(@1)
-	rcall sd_raw_send_command
-	pop mp
-.endm
-
 select_sd_card:
 	cbi PORTB, PB4
 	ret
@@ -78,91 +107,164 @@ unselect_sd_card:
 	ret
 
 set_card_type:
-	sts card_type, mp
+	push XL
+	push XH
+	ldi XL, low(card_type)
+	ldi XH, high(card_type)
+	st X, mp
+	pop XH
+	pop XL
 	ret
 
-_get_card_type:
-	lds mp, card_type
+get_card_type:
+	push XL
+	push XH
+	ldi XL, low(card_type)
+	ldi XH, high(card_type)
+	ld mp, X
+	pop XH
+	pop XL
 	ret
 
 sd_raw_init:
+	;DEBUG_MSG Initialization
+	ldi mp, 0x00
+	rcall set_card_type
 	rcall unselect_sd_card
-	ldi mp, 74;	74 cycles to initialize
-_sd_raw_ready_check:
+	ldi mp, 10
+_sd_raw_core_init:	
 	rcall spi_recv
 	dec mp
-	brne _sd_raw_ready_check
-    ldi mp, 0
-	rjmp set_card_type
-	rjmp select_sd_card
-	ldi mp, 0xFF
-_go_idle_state:
-	SEND_SD_CMD CMD_GO_IDLE_STATE, 0
-	sbrs spi_mp, R1_IDLE_STATE
-	rjmp sd_card_init_after_idle
+	brne _sd_raw_core_init
+	rcall select_sd_card
+_sd_cmd0:
+	ldi mp1, CMD_GO_IDLE_STATE
+	ldi mp2, 0x00
+	ldi mp3, 0x00
+	ldi mp4, 0x00
+	ldi mp5, 0x00
+	ldi mp6,  0x95
+	rcall sd_raw_send_command 	; CMD_GO_IDLE_STATE
+	cpi spi_mp, 0x01
+	breq _sd_cmd8
+	rjmp _sd_cmd0
+_sd_cmd8:
+	ldi mp1, CMD_SEND_IF_COND
+	ldi mp2, 0x00
+	ldi mp3, 0x00
+	ldi mp4, 0x01
+	ldi mp5, 0xAA
+	ldi mp6,  0xFF
+	rcall sd_raw_send_command 	; CMD_SEND_IF_COND
+	sbrs spi_mp, R1_ERASE_RESET
+	rjmp _sd_cmd8_response_check
+	sbrs spi_mp, R1_ILL_COMMAND
+	rjmp _sd_cmd8_response_check
+_sd_cmd8_ok:
+	rcall get_card_type
+	ori mp, SD_RAW_SPEC_1
+	rcall set_card_type
+_sd_cmd8_response_check:
+	ldi mp, 0x04
+_sd_cmd8_check:
+	rcall spi_recv
 	dec mp
-	brne _go_idle_state
-	rjmp sd_card_state_failed
-sd_card_init_after_idle:
-	DEBUG_MSG CardInIDleState
+	brne _sd_cmd8_check
+_sd_cmd8_result:
+	cpi spi_mp, 0xAA
+	breq _sd_cmd8_card_result
+	cpi spi_mp, 0xFF
+	brne _sd_acmd_op_cond	
+_sd_cmd8_card_result:
+	rcall get_card_type
+	ori mp, SD_RAW_SPEC_2
+	rcall set_card_type
+_sd_acmd_op_cond:
+	rcall uart_send
+	mov spi_mp, mp
+	ldi mp1, CMD_SD_SEND_OP_COND
+	ldi mp2, 0x00
+	ldi mp3, 0x00
+	ldi mp4, 0x00
+	ldi mp5, 0x40
+	ldi mp6, 0xFF
+	sbrs spi_mp, SD_RAW_SPEC_2
+	rjmp _sd_acmd_op_cond_repeat
+	ldi mp2, 0x40
+_sd_acmd_op_cond_repeat:
+	rcall sd_raw_send_acommand
+	cpi spi_mp, R1_IDLE_STATE
+	brne _sd_acmd_op_cond_repeat
+	sbrs spi_mp, SD_RAW_SPEC_2
+	rjmp _sd_check_wont_check_ocr
+_sd_check_ocr:
+	ldi mp1, CMD_READ_OCR
+	ldi mp2, 0x00
+	ldi mp3, 0x00
+	ldi mp4, 0x00
+	ldi mp5, 0x00
+	ldi mp6, 0xFF
+	rcall sd_raw_send_command
+_sd_check_wont_check_ocr:
+;	if (sd_raw_card_type & (1 << SD_RAW_SPEC_2)) {
+;		if (sd_raw_send_command(CMD_READ_OCR, 0)) {
+;			return 0;
+;		}
+;		if ((spiRecByte() & 0XC0) == 0XC0)
+;			sd_raw_card_type |= (1 << SD_RAW_SPEC_SDHC);
+;		for (uint8_t i = 0; i < 3; i++) spiRecByte();
+;	}
+
 	ret
 
 sd_raw_send_command:
-	rcall spi_recv
-	DEBUG_MSG WaitForIdle
-	;sd_raw_send_byte(0x40 | command);
-    ldi spi_mp, 0x40
-    or spi_mp, mp
-    rcall spi_send
-    DEBUG_MSG WaitForIdle
-
-;   sd_raw_send_byte((arg >> 24) & 0xff);
-	mov spi_mp, mp4
-	andi spi_mp, 0xff
-	rcall spi_send
-	DEBUG_MSG WaitForIdle
-;   sd_raw_send_byte((arg >> 16) & 0xff);
-	mov spi_mp, mp3
-	andi spi_mp, 0xff
-	rcall spi_send
-	DEBUG_MSG WaitForIdle
-;   sd_raw_send_byte((arg >> 8) & 0xff);
-	mov spi_mp, mp2
-	andi spi_mp, 0xff
-	rcall spi_send
-	DEBUG_MSG WaitForIdle
-;   sd_raw_send_byte((arg >> 0) & 0xff);
+	rcall select_sd_card
+	nop
+	nop
 	mov spi_mp, mp1
-	andi spi_mp, 0xff
+	ori spi_mp, 0x40
 	rcall spi_send
-	DEBUG_MSG WaitForIdle
-;	sd_raw_send_byte(command == CMD_GO_IDLE_STATE ? 0x95 : 0xFF);
-;#if mp == CMD_GO_IDLE_STATE
-	ldi spi_mp, 0x95
-;#else
-;	ldi spi_mp, 0xFF
-;#endif
+	mov spi_mp, mp2
 	rcall spi_send
-	DEBUG_MSG WaitForIdle
-;   for(uint8_t i = 0; i < 10; ++i)
-;   {
-;        response = sd_raw_rec_byte();
-;        if(response != 0xff)
-;            break;
-;    }
-;    return response;
-	ldi mp, 10
-_cmd_response:
-	dec mp
-	breq _cmd_response_handle
+	mov spi_mp, mp3
+	rcall spi_send
+	mov spi_mp, mp4
+	rcall spi_send
+	mov spi_mp, mp5
+	rcall spi_send
+	mov spi_mp, mp6
+	rcall spi_send
+	ldi mp6, 10
+_sd_raw_send_command_check:
 	rcall spi_recv
 	cpi spi_mp, 0xFF
-	breq _cmd_response
-_cmd_response_handle:
-	mov mp, spi_mp
+	brne _sd_raw_send_command_checked
+	dec mp6
+	brne _sd_raw_send_command_check
+_sd_raw_send_command_checked:
 	ret
 
 sd_raw_send_acommand:
+	push mp1
+	push mp2
+	push mp3
+	push mp4
+	push mp5
+	push mp6
+	ldi mp1, CMD_APP
+	ldi mp2, 0x00
+	ldi mp3, 0x00
+	ldi mp4, 0x00
+	ldi mp5, 0x00
+	ldi mp6, 0xFF
+	rcall sd_raw_send_command
+	pop mp6
+	pop mp5
+	pop mp4
+	pop mp3
+	pop mp2
+	pop mp1
+	rcall sd_raw_send_command
 	ret
 
 sd_raw_read:
@@ -197,6 +299,8 @@ _uart_send_z:
 	breq stop_send_z; if not equal send it to UART
 	rcall uart_send
 	rjmp _uart_send_z
+	sts _ptr, ZL
+	sts _ptr + 1, ZH 
 stop_send_z:
 	pop ZH
 	pop ZL
@@ -210,25 +314,11 @@ _uart_send:
 	rjmp _uart_send
 	pop R17
 	sts UDR1, mp		; send the char in mp
+__uart_send:
+	lds R17, UCSR1A
+	sbrs R17, UDRE1		; wait for empty TX
+	rjmp __uart_send
 	ret
-
-; ====================================================================================================================
-; RESET
-; ====================================================================================================================
-reset:
-	.include "init.asm"
-	rcall uart_init
-	rcall spi_init
-	DEBUG_MSG SPIInit
-	rcall sd_raw_init
-	;sei
-
-main:
-	rjmp main
-
-sd_card_state_failed:
-	DEBUG_MSG ErrorInitSD
-	rjmp main
 
 ErrorInitSD:
 .db "Error init SD card", 0x0D, 0x0A, 0x00, 0x00
@@ -237,7 +327,10 @@ CardInIDleState:
 .db "SD Card in idle state", 0x0D, 0x0A, 0x00
 
 WaitForIdle:
-.db "W", 0x0D, 0x0A, 0x00
+.db "+", 0x0D, 0x0A, 0x00
 
 SPIInit:
 .db "SPI init done.", 0x0D, 0x0A, 0x00, 0x00
+
+Initialization:
+.db "Initialization in process...", 0x0D, 0x0A, 0x00, 0x00

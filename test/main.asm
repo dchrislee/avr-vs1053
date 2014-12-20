@@ -18,6 +18,7 @@ reset:
 	rcall uart_init
 	rcall spi_init
 	rcall sd_raw_init
+
 	rjmp main
 
 main:
@@ -127,7 +128,6 @@ get_card_type:
 	ret
 
 sd_raw_init:
-	;DEBUG_MSG Initialization
 	ldi mp, 0x00
 	rcall set_card_type
 	rcall unselect_sd_card
@@ -144,7 +144,7 @@ _sd_cmd0:
 	ldi mp4, 0x00
 	ldi mp5, 0x00
 	ldi mp6,  0x95
-	rcall sd_raw_send_command 	; CMD_GO_IDLE_STATE
+	rcall sd_raw_send_command 	; CMD 0
 	cpi spi_mp, 0x01
 	breq _sd_cmd8
 	rjmp _sd_cmd0
@@ -154,50 +154,52 @@ _sd_cmd8:
 	ldi mp3, 0x00
 	ldi mp4, 0x01
 	ldi mp5, 0xAA
-	ldi mp6,  0xFF
-	rcall sd_raw_send_command 	; CMD_SEND_IF_COND
-	sbrs spi_mp, R1_ERASE_RESET
-	rjmp _sd_cmd8_response_check
+	ldi mp6,  0x87
+	rcall sd_raw_send_command 	; CMD 8
 	sbrs spi_mp, R1_ILL_COMMAND
 	rjmp _sd_cmd8_response_check
-_sd_cmd8_ok:
+_sd_cmd8_ver1:
 	rcall get_card_type
-	ori mp, SD_RAW_SPEC_1
+	ori mp, (1 << SD_RAW_SPEC_1)
 	rcall set_card_type
+	rjmp _sd_card_init_failed	; TODO: SD Ver. 1 Not supported
+
 _sd_cmd8_response_check:
+	rcall get_card_type
+	ori mp, (1 << SD_RAW_SPEC_2)
+	rcall set_card_type
 	ldi mp, 0x04
 _sd_cmd8_check:
 	rcall spi_recv
 	dec mp
 	brne _sd_cmd8_check
+; result = 0xFF
 _sd_cmd8_result:
 	cpi spi_mp, 0xAA
-	breq _sd_cmd8_card_result
+	breq _sd_acmd_41_cond
 	cpi spi_mp, 0xFF
-	brne _sd_acmd_op_cond	
-_sd_cmd8_card_result:
-	rcall get_card_type
-	ori mp, SD_RAW_SPEC_2
-	rcall set_card_type
-_sd_acmd_op_cond:
-	rcall uart_send
-	mov spi_mp, mp
+	brne _sd_acmd_41_cond
+
+_sd_acmd_41_cond:
 	ldi mp1, CMD_SD_SEND_OP_COND
 	ldi mp2, 0x00
 	ldi mp3, 0x00
 	ldi mp4, 0x00
+	ldi mp5, 0x00
+	rcall get_card_type
+	sbrc mp, SD_RAW_SPEC_2
 	ldi mp5, 0x40
 	ldi mp6, 0xFF
-	sbrs spi_mp, SD_RAW_SPEC_2
-	rjmp _sd_acmd_op_cond_repeat
-	ldi mp2, 0x40
-_sd_acmd_op_cond_repeat:
+
+_sd_acmd_41_cond_repeat:
 	rcall sd_raw_send_acommand
-	cpi spi_mp, R1_IDLE_STATE
-	brne _sd_acmd_op_cond_repeat
-	sbrs spi_mp, SD_RAW_SPEC_2
-	rjmp _sd_check_wont_check_ocr
-_sd_check_ocr:
+	cpi spi_mp, 0x01
+	brne _sd_acmd_41_cond_repeat
+
+	sbrs mp, SD_RAW_SPEC_2
+	rjmp _sd_card_init_failed		; TODO: SD Ver. 1 Not supported
+
+_sd_cmd_58_ocr:
 	ldi mp1, CMD_READ_OCR
 	ldi mp2, 0x00
 	ldi mp3, 0x00
@@ -205,22 +207,40 @@ _sd_check_ocr:
 	ldi mp5, 0x00
 	ldi mp6, 0xFF
 	rcall sd_raw_send_command
-_sd_check_wont_check_ocr:
-;	if (sd_raw_card_type & (1 << SD_RAW_SPEC_2)) {
-;		if (sd_raw_send_command(CMD_READ_OCR, 0)) {
-;			return 0;
-;		}
-;		if ((spiRecByte() & 0XC0) == 0XC0)
-;			sd_raw_card_type |= (1 << SD_RAW_SPEC_SDHC);
-;		for (uint8_t i = 0; i < 3; i++) spiRecByte();
-;	}
+	cpi spi_mp, 0x01
+	breq _sd_cmd_58_ocr
 
+	rcall spi_recv
+	andi spi_mp, 0xC0
+	cpi  spi_mp, 0xC0
+	brne _sd_cmd58_result
+sdhc_card:
+	rcall get_card_type
+	ori mp, (1 << SD_RAW_SPEC_SDHC)
+	rcall set_card_type
+_sd_cmd58_result:
+	ldi mp, 3
+_sd_cmd58_result_skip:
+	rcall spi_recv
+	dec mp
+	brne _sd_cmd58_result_skip
+_sd_card_init_done:
+	ldi mp, 0xFF
+	rcall spi_send
+	ldi mp, 0xFF
+	rcall spi_send
+	rcall unselect_sd_card
+	ldi mp, 0xFF
+	rcall spi_send
+; SPI switch to high speed
+	DEBUG_MSG CardReady
+_sd_card_init_failed:
 	ret
 
 sd_raw_send_command:
 	rcall select_sd_card
-	nop
-	nop
+	ldi spi_mp, 0xFF
+	rcall spi_send
 	mov spi_mp, mp1
 	ori spi_mp, 0x40
 	rcall spi_send
@@ -323,14 +343,5 @@ __uart_send:
 ErrorInitSD:
 .db "Error init SD card", 0x0D, 0x0A, 0x00, 0x00
 
-CardInIDleState:
-.db "SD Card in idle state", 0x0D, 0x0A, 0x00
-
-WaitForIdle:
-.db "+", 0x0D, 0x0A, 0x00
-
-SPIInit:
-.db "SPI init done.", 0x0D, 0x0A, 0x00, 0x00
-
-Initialization:
-.db "Initialization in process...", 0x0D, 0x0A, 0x00, 0x00
+CardReady:
+.db "SD Card ready", 0x0D, 0x0A, 0x00

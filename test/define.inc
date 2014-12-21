@@ -189,13 +189,18 @@
 
 .def mp		 = r16			;	Maintain register
 .def spi_mp  = r17
-.def int_mp  = r18
-.def mp1	 = r19
-.def mp2	 = r20
-.def mp3 	 = r21
-.def mp4 	 = r22
-.def mp5	 = r23
-.def mp6     = r24
+
+.def mp1	 = r18
+.def mp2	 = r19
+
+.def mp3 	 = r20
+.def mp4 	 = r21
+
+.def mp5	 = r22
+.def mp6     = r23
+
+.def mp7     = r16
+.def mp8     = r17
 
 .equ CHANGING = 1
 .equ RISING = 3

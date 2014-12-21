@@ -2,8 +2,10 @@
 .include "define.inc"
 
 .dseg
-	_ptr:		.byte 2
-	card_type:	.byte 1
+	_ptr:				.byte 2
+	card_type:			.byte 1
+	raw_block_address:	.byte 2
+	raw_block:			.byte 512
 
 .cseg
 .org 	0x0000
@@ -78,6 +80,16 @@ _configure_spi_opts:
 	pop spi_mp
 	ret
 
+spi_full_speed:
+	in spi_mp, SPCR
+	andi spi_mp, 0xFC
+	ori spi_mp, 0
+
+	in spi_mp, SPSR
+	andi spi_mp, 0xFE
+	ori spi_mp, 0x01
+	ret
+
 _spi_wait_ready:
 	in spi_mp, SPSR
 	sbrs spi_mp, SPIF
@@ -105,6 +117,17 @@ select_sd_card:
 
 unselect_sd_card:
 	sbi PORTB, PB4
+	ret
+
+set_block_address:
+	push XL
+	push XH
+	ldi XL, low(raw_block_address)
+	ldi XH, high(raw_block_address)
+	st X+, 	mp1
+	st X, 	mp2
+	pop XH
+	pop XL
 	ret
 
 set_card_type:
@@ -233,8 +256,140 @@ _sd_card_init_done:
 	ldi mp, 0xFF
 	rcall spi_send
 ; SPI switch to high speed
+	rcall spi_full_speed
+	ldi mp1, 0
+	ldi mp2, 0
+	ldi mp3, low(512)
+	ldi mp4, high(512)
+	rcall sd_raw_read
 	DEBUG_MSG CardReady
+
 _sd_card_init_failed:
+	ret
+
+sd_raw_buffer_clean:
+	push ZL
+	push ZH
+	push XL
+	push XH
+	push mp1
+
+	ldi mp1, 0
+	ldi ZL, low(512)
+	ldi ZH, high(512)
+	ldi XL, low(raw_block)
+	ldi XH, high(raw_block)
+_clean_buffer:
+	st X+, mp1
+	sbiw ZL, 1
+	brne _clean_buffer
+
+	pop mp1
+	pop XH
+	pop XL
+	pop ZH
+	pop ZL
+	ret
+;
+; SD card read routine
+; in: mp1-L:mp2-H - offset
+; in: mp3:mp4 - length to read
+;
+sd_raw_read:
+	push mp7
+	push mp8
+	; clean buffer first
+	rcall sd_raw_buffer_clean
+	;ldi XL, low(512)
+	;ldi XH, high(512)
+_sd_raw_read:
+; block_offset = offset & 0x01ff;
+; mp6 - block_offset * HIGH
+; mp5 - block_offset * LOW
+	movw mp6:mp5, mp2:mp1
+	andi mp6, high(0x01FF)
+	andi mp5, low(0x01FF)
+; block_address = offset - block_offset;
+; mp8 - block_address * HIGH
+; mp7 - block_address * LOW
+	movw mp8:mp7, mp2:mp1
+	sub mp7, mp5
+	sbc mp8, mp6
+;        read_length = 512 - block_offset; /* read up to block border */
+;        if(read_length > length)
+;            read_length = length;
+	push mp1
+	push mp2
+; mp1 - read_length * LOW
+; mp2 - read_length * HIGH
+	ldi mp1, low(512)
+	ldi mp2, high(512)
+	sub mp1, mp5
+	sbc mp2, mp6
+	cp mp1, mp3
+	cpc mp2, mp4
+	brsh _sd_raw_read_1
+	movw mp2:mp1, mp4:mp3
+_sd_raw_read_1:
+	push mp3
+	push mp4
+	ldi XL, low(raw_block_address)
+	ldi XH, high(raw_block_address)
+	ld mp3, X+
+	ld mp4, X
+	cp mp7, mp3
+	cpc mp8, mp4
+	pop mp4
+	pop mp3
+	breq _sd_read_done
+_sd_raw_read_2:
+	rcall select_sd_card
+;            /* send single block request */
+;            if(sd_raw_send_command(CMD_READ_SINGLE_BLOCK, (sd_raw_card_type & (1 << SD_RAW_SPEC_SDHC) ? block_address / 512 : block_address)))
+;            {
+;                unselect_card();
+;                return 0;
+;            }
+;            while(sd_raw_rec_byte() != 0xfe);
+;#if SD_RAW_SAVE_RAM
+;            /* read byte block */
+;            uint16_t read_to = block_offset + read_length;
+;            for(uint16_t i = 0; i < 512; ++i)
+;            {
+;                uint8_t b = sd_raw_rec_byte();
+;                if(i >= block_offset && i < read_to)
+;                    *buffer++ = b;
+;            }
+;#else
+;            /* read byte block */
+;            uint8_t* cache = raw_block;
+;            for(uint16_t i = 0; i < 512; ++i)
+;                *cache++ = sd_raw_rec_byte();
+;            raw_block_address = block_address;
+;            memcpy(buffer, raw_block + block_offset, read_length);
+;            buffer += read_length;
+;#endif
+;            /* read crc16 */
+;            sd_raw_rec_byte();
+;            sd_raw_rec_byte();
+;            /* deaddress card */
+;            unselect_card();
+;            /* let card some time to finish */
+;            sd_raw_rec_byte();
+	; read crc16
+	rcall spi_recv
+	rcall spi_recv
+	rcall unselect_sd_card
+	; let's card take some time to finish
+	rcall spi_recv
+	;sbiw XL, 1
+	;brne _sd_raw_read
+_sd_read_done:
+	pop mp2
+	pop mp1
+
+	pop mp8
+	pop mp7
 	ret
 
 sd_raw_send_command:
@@ -244,6 +399,7 @@ sd_raw_send_command:
 	mov spi_mp, mp1
 	ori spi_mp, 0x40
 	rcall spi_send
+; data
 	mov spi_mp, mp2
 	rcall spi_send
 	mov spi_mp, mp3
@@ -252,6 +408,7 @@ sd_raw_send_command:
 	rcall spi_send
 	mov spi_mp, mp5
 	rcall spi_send
+; checksum
 	mov spi_mp, mp6
 	rcall spi_send
 	ldi mp6, 10
@@ -285,9 +442,6 @@ sd_raw_send_acommand:
 	pop mp2
 	pop mp1
 	rcall sd_raw_send_command
-	ret
-
-sd_raw_read:
 	ret
 
 ; ====================================================================================================================
